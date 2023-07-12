@@ -62,7 +62,7 @@ pub struct ServerArgs {
     /// Max stdout log level
     #[arg(long, default_value_t = LevelFilter::INFO)]
     log_level_stdout: LevelFilter,
-    /// Restore the Indexer State from a .indxr File
+    /// Restore the indexer state from a .indxr File
     #[arg(short, long)]
     snapshot_path: Option<PathBuf>,
     /// Interval for pruning the root branch
@@ -91,6 +91,7 @@ pub struct IndexerConfiguration {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct SaveCommand(PathBuf);
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SaveResponse(String);
 
@@ -100,6 +101,7 @@ pub async fn handle_command_line_arguments(
 ) -> anyhow::Result<IndexerConfiguration> {
     trace!("Parsing server args");
 
+    let ledger = args.ledger;
     let non_genesis_ledger = args.non_genesis_ledger;
     let root_hash = BlockHash(args.root_hash.to_string());
     let startup_dir = args.startup_dir;
@@ -122,14 +124,14 @@ pub async fn handle_command_line_arguments(
     create_dir_if_non_existent(watch_dir.to_str().unwrap()).await;
     create_dir_if_non_existent(log_dir.to_str().unwrap()).await;
 
-    info!("Parsing genesis ledger file at {}", args.ledger.display());
+    info!("Parsing genesis ledger file at {}", ledger.display());
 
-    match ledger::genesis::parse_file(&args.ledger).await {
+    match ledger::genesis::parse_file(&ledger).await {
         Err(err) => {
             error!(
                 reason = "Unable to parse genesis ledger",
                 error = err.to_string(),
-                path = &args.ledger.display().to_string()
+                path = &ledger.display().to_string()
             );
             process::exit(100)
         }
