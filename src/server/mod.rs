@@ -309,6 +309,7 @@ pub async fn run(
 
             save_rx_fut = save_rx.recv() => {
                 if let Some(SaveCommand(snapshot_path)) = save_rx_fut {
+                    trace!("received SaveCommand for path {} on main thread", &snapshot_path.display());
                     match indexer_state.save_snapshot_full(snapshot_path) {
                         Ok(_) => save_resp_tx.send(Some(SaveResponse("snapshot created".to_string())))?,
                         Err(e) => save_resp_tx.send(Some(SaveResponse(e.to_string())))?,
@@ -397,9 +398,11 @@ async fn handle_conn(
             let snapshot_path = PathBuf::from(String::from_utf8(
                 data_buffer[..data_buffer.len() - 1].to_vec(),
             )?);
+            trace!("sending SaveCommand to primary indexer thread");
             save_tx.send(SaveCommand(snapshot_path)).await?;
             // while !save_resp_rx.has_changed()? {}
             if let Some(resp) = save_resp_rx.recv()? {
+                trace!("received SaveResponse {:?}", resp);
                 let bytes = bcs::to_bytes(&resp)?;
                 writer.write_all(&bytes).await?;
             }
