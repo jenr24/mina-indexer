@@ -181,9 +181,7 @@ impl BlockParser {
                     // search for parent in previous segment's blocks
                     let prev_length_idx = length_start_indices_and_diffs[curr_start_idx - 1].0;
                     for path in paths[prev_length_idx..curr_length_idx].iter() {
-                        trace!("checking if {path:?} is the parent of {curr_path:?}");
                         if extract_parent_hash_from_path(curr_path)? == hash_from_path(path) {
-                            trace!("{path:?} is the parent of {curr_path:?}");
                             canonical_paths.push(path.clone());
                             curr_path = path;
                             curr_length_idx = prev_length_idx;
