@@ -70,7 +70,7 @@ impl BlockReceiver {
         wkd.pathset = vec![directory.into()];
         self.worker_command_sender.send_replace(wkd);
 
-        match BlockParser::new(directory) {
+        match BlockParser::new_watch(directory) {
             Ok(block_parser) => self.parsers.push(block_parser),
             Err(err) => return Err(err),
         }

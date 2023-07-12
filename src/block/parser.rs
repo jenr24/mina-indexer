@@ -35,11 +35,15 @@ pub struct BlockParser {
 
 impl BlockParser {
     pub fn new(blocks_dir: &Path) -> anyhow::Result<Self> {
-        Self::new_internal(blocks_dir, SearchRecursion::None)
+        Self::new_internal(blocks_dir, true, SearchRecursion::None)
+    }
+
+    pub fn new_watch(blocks_dir: &Path) -> anyhow::Result<Self> {
+        Self::new_internal(blocks_dir, false, SearchRecursion::None)
     }
 
     pub fn new_recursive(blocks_dir: &Path) -> anyhow::Result<Self> {
-        Self::new_internal(blocks_dir, SearchRecursion::Recursive)
+        Self::new_internal(blocks_dir, true, SearchRecursion::Recursive)
     }
 
     /// Simplified `BlockParser` for testing without canonical chain discovery.
@@ -70,7 +74,11 @@ impl BlockParser {
     /// separating the block paths into two categories:
     /// - blocks known to be _canonical_
     /// - blocks that are higher than the canonical tip
-    fn new_internal(blocks_dir: &Path, recursion: SearchRecursion) -> anyhow::Result<Self> {
+    fn new_internal(
+        blocks_dir: &Path,
+        startup: bool,
+        recursion: SearchRecursion,
+    ) -> anyhow::Result<Self> {
         debug!("Building parser");
         if blocks_dir.exists() {
             let pattern = match &recursion {
@@ -89,128 +97,133 @@ impl BlockParser {
             let mut successive_paths = vec![];
 
             if !paths.is_empty() {
-                info!("Sorting startup blocks by length");
+                if !startup {
+                    paths.sort_by_key(|x| length_from_path_or_max(x));
+                    successive_paths = paths;
+                } else {
+                    info!("Sorting startup blocks by length");
 
-                let time = Instant::now();
-                paths.sort_by_key(|x| length_from_path_or_max(x));
+                    let time = Instant::now();
+                    paths.sort_by_key(|x| length_from_path_or_max(x));
 
-                info!(
-                    "{} blocks sorted by length in {:?}",
-                    paths.len(),
-                    time.elapsed()
-                );
-                info!("Searching for canonical chain in startup blocks");
+                    info!(
+                        "{} blocks sorted by length in {:?}",
+                        paths.len(),
+                        time.elapsed()
+                    );
+                    info!("Searching for canonical chain in startup blocks");
 
-                // keep track of:
-                // - diffs between blocks of successive lengths (to find gaps)
-                // - starting index for each collection of blocks of a fixed length
-                // - length of the current path under investigation
-                let mut length_start_indices_and_diffs = vec![];
-                let mut curr_length = length_from_path(paths.first().unwrap()).unwrap();
+                    // keep track of:
+                    // - diffs between blocks of successive lengths (to find gaps)
+                    // - starting index for each collection of blocks of a fixed length
+                    // - length of the current path under investigation
+                    let mut length_start_indices_and_diffs = vec![];
+                    let mut curr_length = length_from_path(paths.first().unwrap()).unwrap();
 
-                for (idx, path) in paths.iter().enumerate() {
-                    let length = length_from_path_or_max(path);
-                    if idx == 0 || length > curr_length {
-                        length_start_indices_and_diffs.push((idx, length - curr_length));
-                        curr_length = length;
-                    } else {
-                        continue;
-                    }
-                }
-
-                // check that there are enough contiguous blocks for a canonical chain
-                let last_contiguous_start_idx =
-                    last_contiguous_start_idx(&length_start_indices_and_diffs);
-                let last_contiguous_idx =
-                    1.max(length_start_indices_and_diffs[last_contiguous_start_idx].0) - 1;
-
-                if last_contiguous_idx < MAINNET_CANONICAL_THRESHOLD as usize {
-                    info!("No canoncial blocks can be confidently found. Adding all blocks to the witness tree.");
-                    return Ok(Self {
-                        num_canonical: 0,
-                        total_num_blocks: paths.len() as u32,
-                        blocks_dir,
-                        recursion,
-                        canonical_paths: vec![].into_iter(),
-                        successive_paths: paths.into_iter(),
-                    });
-                }
-
-                // backtrack `MAINNET_CANONICAL_THRESHOLD` blocks from
-                // the `last_contiguous_idx` to find the canonical tip
-                let time = Instant::now();
-                let (mut curr_length_idx, mut curr_start_idx) = find_canonical_tip(
-                    &paths,
-                    &length_start_indices_and_diffs,
-                    last_contiguous_start_idx - 1,
-                    last_contiguous_idx,
-                );
-                let mut curr_path = &paths[curr_length_idx];
-
-                info!(
-                    "Found canonical tip with hash {} in {:?}",
-                    hash_from_path(curr_path),
-                    time.elapsed()
-                );
-
-                // handle all blocks that are higher than the canonical tip
-                let successive_start_idx = curr_start_idx + 1;
-                if successive_start_idx < length_start_indices_and_diffs.len() {
-                    for path in paths[length_start_indices_and_diffs[successive_start_idx].0..]
-                        .iter()
-                        .filter(|p| length_from_path(p).is_some())
-                    {
-                        successive_paths.push(path.clone());
-                    }
-                }
-
-                // collect the canonical blocks
-                canonical_paths.push(curr_path.clone());
-                info!("Walking the canonical chain back to the beginning, reporting every {BLOCK_REPORTING_FREQ_NUM} blocks.", );
-
-                let time = Instant::now();
-                let mut count = 1;
-
-                // descend from the canonical tip to the lowest block in the dir,
-                // segment by segment, searching for ancestors
-                while curr_start_idx > 0 {
-                    if count % BLOCK_REPORTING_FREQ_NUM == 0 {
-                        info!("Found {count} canonical blocks in {:?}", time.elapsed());
+                    for (idx, path) in paths.iter().enumerate() {
+                        let length = length_from_path_or_max(path);
+                        if idx == 0 || length > curr_length {
+                            length_start_indices_and_diffs.push((idx, length - curr_length));
+                            curr_length = length;
+                        } else {
+                            continue;
+                        }
                     }
 
-                    // search for parent in previous segment's blocks
-                    let prev_length_idx = length_start_indices_and_diffs[curr_start_idx - 1].0;
-                    for path in paths[prev_length_idx..curr_length_idx].iter() {
-                        trace!("checking if {path:?} is the parent of {curr_path:?}");
+                    // check that there are enough contiguous blocks for a canonical chain
+                    let last_contiguous_start_idx =
+                        last_contiguous_start_idx(&length_start_indices_and_diffs);
+                    let last_contiguous_idx =
+                        1.max(length_start_indices_and_diffs[last_contiguous_start_idx].0) - 1;
+
+                    if last_contiguous_idx < MAINNET_CANONICAL_THRESHOLD as usize {
+                        info!("No canoncial blocks can be confidently found. Adding all blocks to the witness tree.");
+                        return Ok(Self {
+                            num_canonical: 0,
+                            total_num_blocks: paths.len() as u32,
+                            blocks_dir,
+                            recursion,
+                            canonical_paths: vec![].into_iter(),
+                            successive_paths: paths.into_iter(),
+                        });
+                    }
+
+                    // backtrack `MAINNET_CANONICAL_THRESHOLD` blocks from
+                    // the `last_contiguous_idx` to find the canonical tip
+                    let time = Instant::now();
+                    let (mut curr_length_idx, mut curr_start_idx) = find_canonical_tip(
+                        &paths,
+                        &length_start_indices_and_diffs,
+                        last_contiguous_start_idx - 1,
+                        last_contiguous_idx,
+                    );
+                    let mut curr_path = &paths[curr_length_idx];
+
+                    info!(
+                        "Found canonical tip with hash {} in {:?}",
+                        hash_from_path(curr_path),
+                        time.elapsed()
+                    );
+
+                    // handle all blocks that are higher than the canonical tip
+                    let successive_start_idx = curr_start_idx + 1;
+                    if successive_start_idx < length_start_indices_and_diffs.len() {
+                        for path in paths[length_start_indices_and_diffs[successive_start_idx].0..]
+                            .iter()
+                            .filter(|p| length_from_path(p).is_some())
+                        {
+                            successive_paths.push(path.clone());
+                        }
+                    }
+
+                    // collect the canonical blocks
+                    canonical_paths.push(curr_path.clone());
+                    info!("Walking the canonical chain back to the beginning, reporting every {BLOCK_REPORTING_FREQ_NUM} blocks.", );
+
+                    let time = Instant::now();
+                    let mut count = 1;
+
+                    // descend from the canonical tip to the lowest block in the dir,
+                    // segment by segment, searching for ancestors
+                    while curr_start_idx > 0 {
+                        if count % BLOCK_REPORTING_FREQ_NUM == 0 {
+                            info!("Found {count} canonical blocks in {:?}", time.elapsed());
+                        }
+
+                        // search for parent in previous segment's blocks
+                        let prev_length_idx = length_start_indices_and_diffs[curr_start_idx - 1].0;
+                        for path in paths[prev_length_idx..curr_length_idx].iter() {
+                            trace!("checking if {path:?} is the parent of {curr_path:?}");
+                            if extract_parent_hash_from_path(curr_path)? == hash_from_path(path) {
+                                trace!("{path:?} is the parent of {curr_path:?}");
+                                canonical_paths.push(path.clone());
+                                curr_path = path;
+                                curr_length_idx = prev_length_idx;
+                                count += 1;
+                                curr_start_idx -= 1;
+                                break;
+                            }
+                        }
+                    }
+
+                    // push the lowest canonical block
+                    for path in paths[..curr_length_idx].iter() {
                         if extract_parent_hash_from_path(curr_path)? == hash_from_path(path) {
-                            trace!("{path:?} is the parent of {curr_path:?}");
                             canonical_paths.push(path.clone());
-                            curr_path = path;
-                            curr_length_idx = prev_length_idx;
-                            count += 1;
-                            curr_start_idx -= 1;
                             break;
                         }
                     }
+
+                    info!("Canonical chain discovery finished!");
+                    info!(
+                        "Found {} blocks in the canonical chain in {:?}",
+                        canonical_paths.len(),
+                        time.elapsed()
+                    );
+
+                    // sort lowest to highest
+                    canonical_paths.reverse();
                 }
-
-                // push the lowest canonical block
-                for path in paths[..curr_length_idx].iter() {
-                    if extract_parent_hash_from_path(curr_path)? == hash_from_path(path) {
-                        canonical_paths.push(path.clone());
-                        break;
-                    }
-                }
-
-                info!("Canonical chain discovery finished!");
-                info!(
-                    "Found {} blocks in the canonical chain in {:?}",
-                    canonical_paths.len(),
-                    time.elapsed()
-                );
-
-                // sort lowest to highest
-                canonical_paths.reverse();
             }
 
             Ok(Self {
