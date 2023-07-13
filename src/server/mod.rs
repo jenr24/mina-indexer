@@ -403,7 +403,7 @@ async fn handle_conn(
             trace!("sending SaveCommand to primary indexer thread");
             save_tx.send(SaveCommand(snapshot_path)).await?;
             // while !save_resp_rx.has_changed()? {}
-            if let Some(resp) = save_resp_rx.recv()? {
+            if let Some(resp) = save_resp_rx.try_recv()? {
                 trace!("received SaveResponse {:?}", resp);
                 let bytes = bcs::to_bytes(&resp)?;
                 writer.write_all(&bytes).await?;
