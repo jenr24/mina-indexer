@@ -280,7 +280,10 @@ impl IndexerState {
     }
 
     #[instrument(skip(self))]
-    pub fn save_snapshot_full(&mut self, snapshot_path: impl AsRef<Path> + std::fmt::Debug) -> anyhow::Result<()> {
+    pub fn save_snapshot_full(
+        &mut self,
+        snapshot_path: impl AsRef<Path> + std::fmt::Debug,
+    ) -> anyhow::Result<()> {
         trace!("saving snapshot!");
         let snapshot = self.to_state_snapshot();
         if let Some(indexer_store) = self.indexer_store.as_mut() {
