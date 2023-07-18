@@ -138,7 +138,7 @@ pub async fn run(command: &ClientCli) -> Result<(), anyhow::Error> {
             writer.write_all(command.as_bytes()).await?;
             reader.read_to_end(&mut buffer).await?;
             let response: String = bcs::from_bytes(&buffer)?;
-            println!("{}", response);
+            println!("{response}");
         }
     }
 

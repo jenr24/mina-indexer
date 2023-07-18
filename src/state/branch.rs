@@ -16,6 +16,7 @@ pub struct Branch {
 }
 
 impl Branch {
+    /// Creates a new `Branch` from a genesis hash
     pub fn new_genesis(root_hash: BlockHash) -> Self {
         let genesis_block = Block {
             state_hash: root_hash.clone(),
@@ -31,6 +32,7 @@ impl Branch {
         Self { root, branches }
     }
 
+    /// Creates a new `Branch` from an arbitrary starting hash
     pub fn new_non_genesis(
         root_hash: BlockHash,
         blockchain_length: Option<u32>,
@@ -49,6 +51,7 @@ impl Branch {
         Self { root, branches }
     }
 
+    /// Creates a new `Branch` from a `PrecomputedBlock` for testing
     pub fn new_testing(precomputed_block: &PrecomputedBlock) -> Self {
         let root_block = Block::from_precomputed(precomputed_block, 0);
         let mut branches = Tree::new();
@@ -56,14 +59,10 @@ impl Branch {
 
         Self { root, branches }
     }
-
-    // only the genesis block should work here
-    pub fn new_rooted(root_precomputed: &PrecomputedBlock) -> Self {
-        Branch::new(root_precomputed).unwrap()
-    }
 }
 
 impl Branch {
+    /// Creates a new `Branch` from a given `PrecomputedBlock`
     pub fn new(root_precomputed: &PrecomputedBlock) -> anyhow::Result<Self> {
         let root_block = Block::from_precomputed(root_precomputed, 0);
         let mut branches = Tree::new();
@@ -76,6 +75,7 @@ impl Branch {
         self.branches.height() == 0
     }
 
+    /// Returns the node id of the best tip
     pub fn best_tip_id(&self) -> NodeId {
         let mut best_tip_id = self
             .branches
@@ -106,6 +106,7 @@ impl Branch {
         best_tip_id
     }
 
+    /// Returns the node id of the canonical tip, if it exists
     pub fn canonical_tip_id(&self, canonical_update_threshold: u32) -> Option<NodeId> {
         let mut generation_removed = 0;
         let mut canonical_tip_id = self.best_tip_id();
@@ -127,7 +128,7 @@ impl Branch {
         }
     }
 
-    /// Returns the new node's id in the branch
+    /// Returns the new node's id in the branch and its data
     pub fn simple_extension(&mut self, block: &PrecomputedBlock) -> Option<(NodeId, Block)> {
         let root_node_id = self
             .branches
@@ -235,7 +236,7 @@ impl Branch {
     }
 
     /// Merges two trees:
-    /// incoming is placed under junction_id in self
+    /// the `incoming` tree is placed under `junction_id` in `self`
     ///
     /// Returns the id of the best tip in the merged subtree
     pub fn merge_on(&mut self, junction_id: &NodeId, incoming: &mut Branch) -> Option<NodeId> {
@@ -411,10 +412,12 @@ impl Branch {
         leaves.first().cloned()
     }
 
+    /// Returns the `BlockHash`es of the longest chain in the branch,
+    /// sorted from highest to lowest
     pub fn longest_chain(&self) -> Vec<BlockHash> {
         let mut longest_chain = Vec::new();
         if let Some((node_id, _)) = self.best_tip_with_id() {
-            // push the leaf itself
+            // push the tip itself
             longest_chain.push(
                 self.branches
                     .get(&node_id)
@@ -424,7 +427,7 @@ impl Branch {
                     .clone(),
             );
 
-            // push the leaf's ancestors
+            // push the tip's ancestors
             for node in self.branches.ancestors(&node_id).expect("node_id is valid") {
                 longest_chain.push(node.data().state_hash.clone());
             }
@@ -458,5 +461,14 @@ impl Branch {
             }
         }
         false
+    }
+}
+
+// only display the underlying tree
+impl std::fmt::Display for Branch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut tree = String::new();
+        self.branches.write_formatted(&mut tree)?;
+        write!(f, "{tree}")
     }
 }

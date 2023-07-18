@@ -63,7 +63,7 @@ pub struct ServerArgs {
     #[arg(long, default_value_t = LevelFilter::INFO)]
     log_level_stdout: LevelFilter,
     /// Restore the indexer state from a .indxr File
-    #[arg(short, long)]
+    #[arg(long)]
     snapshot_path: Option<PathBuf>,
     /// Interval for pruning the root branch
     #[arg(short, long, default_value_t = PRUNE_INTERVAL_DEFAULT)]
@@ -297,6 +297,7 @@ pub async fn run(
 
                 let save_tx = save_tx.clone();
                 let save_resp_rx = save_resp_rx.clone();
+
                 // handle the connection
                 tokio::spawn(async move {
                     debug!("Handling connection");
@@ -362,9 +363,9 @@ async fn handle_conn(
             let num = String::from_utf8(data_buffer[..data_buffer.len() - 1].to_vec())?
                 .parse::<usize>()?;
             let mut parent_hash = best_tip.parent_hash;
-            let mut best_chain = vec![db.get_block(&best_tip.state_hash).unwrap().unwrap()];
+            let mut best_chain = vec![db.get_block(&best_tip.state_hash)?.unwrap()];
             for _ in 1..num {
-                let parent_pcb = db.get_block(&parent_hash).unwrap().unwrap();
+                let parent_pcb = db.get_block(&parent_hash)?.unwrap();
                 parent_hash =
                     BlockHash::from_hashv1(parent_pcb.protocol_state.previous_state_hash.clone());
                 best_chain.push(parent_pcb);

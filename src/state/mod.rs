@@ -615,6 +615,7 @@ impl IndexerState {
         // now add the successive non-canoical blocks
         self.add_blocks(block_parser, block_count).await
     }
+
     /// Initialize indexer state without contiguous canonical blocks
     pub async fn initialize_without_contiguous_canonical(
         &mut self,
@@ -1157,13 +1158,13 @@ fn should_report_from_block_count(block_count: u32) -> bool {
 impl std::fmt::Debug for IndexerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "=== Root branch ===")?;
-        writeln!(f, "{:?}", self.root_branch)?;
+        writeln!(f, "{}", self.root_branch)?;
 
         if !self.dangling_branches.is_empty() {
             writeln!(f, "=== Dangling branches ===")?;
             for (n, branch) in self.dangling_branches.iter().enumerate() {
                 writeln!(f, "Dangling branch {n}:")?;
-                writeln!(f, "{branch:?}")?;
+                writeln!(f, "{branch}")?;
             }
         }
 
