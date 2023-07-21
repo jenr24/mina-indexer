@@ -49,6 +49,7 @@ pub trait StateStore {
 /// Rooted forest of precomputed block summaries aka the witness tree
 /// `root_branch` - represents the tree of blocks connecting back to a known ledger state, e.g. genesis
 /// `dangling_branches` - trees of blocks stemming from an unknown ledger state
+#[derive(Debug)]
 pub struct IndexerState {
     /// Indexer mode
     pub mode: IndexerMode,
@@ -612,7 +613,7 @@ impl IndexerState {
             indexer_store.add_ledger(&self.root_branch.root_block().state_hash, ledger.clone())?;
         }
 
-        // now add the successive non-canoical blocks
+        // now add the successive non-canonical blocks
         self.add_blocks(block_parser, block_count).await
     }
 
@@ -1110,7 +1111,7 @@ impl IndexerState {
             num_dangling: self.dangling_branches.len() as u32,
             max_dangling_height,
             max_dangling_length,
-            witness_tree: format!("{self:?}"),
+            witness_tree: format!("{self}"),
         };
 
         SummaryVerbose {
@@ -1155,7 +1156,7 @@ fn should_report_from_block_count(block_count: u32) -> bool {
     block_count > 0 && block_count % BLOCK_REPORTING_FREQ_NUM == 0
 }
 
-impl std::fmt::Debug for IndexerState {
+impl std::fmt::Display for IndexerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "=== Root branch ===")?;
         writeln!(f, "{}", self.root_branch)?;
