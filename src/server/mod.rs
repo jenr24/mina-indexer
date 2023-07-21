@@ -2,8 +2,6 @@ use crate::{
     block::{
         parser::BlockParser, receiver::BlockReceiver, store::BlockStore, Block, BlockHash,
         BlockWithoutHeight,
-        parser::BlockParser, receiver::BlockReceiver, store::BlockStore, Block, BlockHash,
-        BlockWithoutHeight,
     },
     state::{
         ledger::{self, genesis::GenesisRoot, public_key::PublicKey, Ledger},
