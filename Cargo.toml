@@ -12,6 +12,10 @@ bench = false
 name = "mainnet-test"
 test = true
 
+[[bin]]
+name = "staking-ledger-ingestion"
+test = false
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -55,6 +59,8 @@ zstd = "0.12.3"
 blake3 = "1.4.0"
 tar = "0.4.38"
 spmc = "0.3.0"
+rust_decimal = "1.30.0"
+rust_decimal_macros = "1.30"
 
 [dependencies.tokio]
 version = "1.25.0"
