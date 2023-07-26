@@ -426,6 +426,7 @@ impl IndexerState {
         let mut rocksdb_lock_file_path = PathBuf::from(database_path.as_ref());
         rocksdb_lock_file_path.push("LOCK");
         if std::fs::metadata(&rocksdb_lock_file_path).is_ok() {
+            trace!("removing lock file!");
             std::fs::remove_file(&rocksdb_lock_file_path)?;
         }
 
