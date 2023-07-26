@@ -266,6 +266,7 @@ pub async fn run(
     let save_resp_rx = Arc::new(save_resp_rx);
 
     loop {
+        trace!("awaiting future");
         tokio::select! {
             block_fut = block_receiver.recv() => {
                 if let Some(block_result) = block_fut {
@@ -405,11 +406,14 @@ async fn handle_conn(
             )?);
             trace!("sending SaveCommand to primary indexer thread");
             save_tx.send(SaveCommand(snapshot_path)).await?;
-            // while !save_resp_rx.has_changed()? {}
-            if let Some(resp) = save_resp_rx.try_recv()? {
-                trace!("received SaveResponse {:?}", resp);
-                let bytes = bcs::to_bytes(&resp)?;
-                writer.write_all(&bytes).await?;
+            trace!("awaiting SaveResponse from primary indexer thread");
+            loop {
+                if let Some(resp) = save_resp_rx.try_recv()? { // we want to block here
+                    trace!("received SaveResponse {:?}", resp);
+                    let bytes = bcs::to_bytes(&resp)?;
+                    writer.write_all(&bytes).await?;
+                    break;
+                }
             }
         }
         bad_request => {

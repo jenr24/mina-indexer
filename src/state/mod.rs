@@ -25,7 +25,7 @@ use std::{
     path::{Path, PathBuf},
     process,
     str::FromStr,
-    sync::Arc,
+    sync::Arc, fs::create_dir_all,
 };
 use tar::Archive;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
@@ -299,7 +299,7 @@ impl IndexerState {
             trace!("Flushing database operations to disk and Creating new RocksDB Backup");
             backup_engine.create_new_backup_flush(indexer_store.db(), true)?;
             trace!("Creating output file at {}", snapshot_file_path.display());
-            let tarball_file = std::fs::File::create(snapshot_file_path)?;
+            let tarball_file = std::fs::File::create(&snapshot_file_path)?;
             trace!("Initializing zstd encoder for {:?}", tarball_file);
             let encoder =
                 zstd::Encoder::new(tarball_file, AMAZON_ATHENA_DEFAULT_ZSTD_COMPRESSION_LEVEL)?;
@@ -308,6 +308,9 @@ impl IndexerState {
             trace!("Adding the RocksDB backup to the archive");
             tar.append_dir_all("rocksdb_backup", &rocksdb_backup_path)?;
             trace!("Finalizing tarball file");
+            std::fs::remove_dir_all(&snapshot_file_path.with_file_name("private"))?;
+            std::fs::remove_dir_all(&snapshot_file_path.with_file_name("meta"))?;
+            std::fs::remove_dir_all(&snapshot_file_path.with_file_name("shared_checksum"))?;
             drop(tar.into_inner()?.finish()?);
             Ok(())
         } else {
@@ -407,6 +410,7 @@ impl IndexerState {
             database_path.as_ref(),
             &RestoreOptions::default(),
         )?;
+        drop(backup_engine);
         trace!("initializing IndexerStore with restored database instance");
         if std::fs::metadata(&rocksdb_backup_path).is_ok() {
             std::fs::remove_dir_all(rocksdb_backup_path)?;
