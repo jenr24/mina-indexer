@@ -25,7 +25,7 @@ use std::{
     path::{Path, PathBuf},
     process,
     str::FromStr,
-    sync::Arc, fs::create_dir_all,
+    sync::Arc, fs::{create_dir_all, remove_dir_all},
 };
 use tar::Archive;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
@@ -315,6 +315,7 @@ impl IndexerState {
             tar.append_dir_all("rocksdb_backup", &backup_dir)?;
             trace!("Finalizing tarball file");
             drop(tar.into_inner()?.finish()?);
+            remove_dir_all(&backup_dir)?;
             Ok(())
         } else {
             Err(anyhow::Error::msg(
@@ -398,7 +399,6 @@ impl IndexerState {
     ) -> anyhow::Result<Self> {
         let mut rocksdb_backup_path = PathBuf::from(snapshot_path.as_ref());
         rocksdb_backup_path.pop();
-        rocksdb_backup_path.push("rocksdb_backup");
         let backup_tarball = std::fs::File::open(snapshot_path)?;
         let decoder = zstd::Decoder::new(backup_tarball)?;
         let mut archive = Archive::new(decoder);
