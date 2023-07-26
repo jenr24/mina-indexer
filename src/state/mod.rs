@@ -423,6 +423,11 @@ impl IndexerState {
         if std::fs::metadata(&rocksdb_backup_path).is_ok() {
             std::fs::remove_dir_all(rocksdb_backup_path)?;
         }
+        let mut rocksdb_lock_file_path = PathBuf::from(database_path.as_ref());
+        rocksdb_lock_file_path.push("LOCK");
+        if std::fs::metadata(&rocksdb_lock_file_path).is_ok() {
+            std::fs::remove_file(&rocksdb_lock_file_path)?;
+        }
 
         Self::from_snapshot_full(
             database_path,
