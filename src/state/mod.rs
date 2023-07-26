@@ -404,6 +404,7 @@ impl IndexerState {
         let mut archive = Archive::new(decoder);
         trace!("unpacking backup data into ./rocksdb_backup");
         archive.unpack(&rocksdb_backup_path)?;
+        rocksdb_backup_path.push("rocksdb_backup");
         let backup_opts = BackupEngineOptions::new(&rocksdb_backup_path)?;
         let backup_env = rocksdb::Env::new()?;
         let mut backup_engine = BackupEngine::open(&backup_opts, &backup_env)?;
