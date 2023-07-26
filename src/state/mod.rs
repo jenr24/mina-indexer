@@ -287,17 +287,23 @@ impl IndexerState {
     ) -> anyhow::Result<()> {
         trace!("saving snapshot!");
         let snapshot = self.to_state_snapshot();
-        if let Some(indexer_store) = self.indexer_store.as_mut() {
-            let mut snapshot_file_path = PathBuf::from(snapshot_path.as_ref());
-            let rocksdb_backup_path = PathBuf::from(snapshot_path.as_ref());
-            snapshot_file_path.push("indexer_snapshot.tar.zst");
+        if let Some(indexer_store) = self.indexer_store.as_mut() {            
+            // store state snapshot in RocksDB
             indexer_store.store_state_snapshot(&snapshot)?;
+            // create folder for RocksDB backup
+            let mut backup_dir = PathBuf::from(snapshot_path.as_ref());
+            backup_dir.push("rocksdb_backup");
+            // Initialize Backup Engine in snapshot directory
             trace!("Initializing RocksDB BackupEngine");
-            let backup_opts = BackupEngineOptions::new(&rocksdb_backup_path)?;
+            let backup_opts = BackupEngineOptions::new(&backup_dir)?;
             let backup_env = rocksdb::Env::new()?;
             let mut backup_engine = BackupEngine::open(&backup_opts, &backup_env)?;
+            // Write RocksDB backup to disk
             trace!("Flushing database operations to disk and Creating new RocksDB Backup");
             backup_engine.create_new_backup_flush(indexer_store.db(), true)?;
+            // Create output tarball in snapshot directory
+            let mut snapshot_file_path = PathBuf::from(snapshot_path.as_ref());
+            snapshot_file_path.push("indexer_snapshot.tar.zst");
             trace!("Creating output file at {}", snapshot_file_path.display());
             let tarball_file = std::fs::File::create(&snapshot_file_path)?;
             trace!("Initializing zstd encoder for {:?}", tarball_file);
@@ -306,11 +312,8 @@ impl IndexerState {
             trace!("Creating new tar archive builder");
             let mut tar = tar::Builder::new(encoder);
             trace!("Adding the RocksDB backup to the archive");
-            tar.append_dir_all("rocksdb_backup", &snapshot_file_path.with_file_name("rocksdb_backup"))?;
+            tar.append_dir_all("rocksdb_backup", &backup_dir)?;
             trace!("Finalizing tarball file");
-            std::fs::remove_dir_all(&snapshot_file_path.with_file_name("private"))?;
-            std::fs::remove_dir_all(&snapshot_file_path.with_file_name("meta"))?;
-            std::fs::remove_dir_all(&snapshot_file_path.with_file_name("shared_checksum"))?;
             drop(tar.into_inner()?.finish()?);
             Ok(())
         } else {
