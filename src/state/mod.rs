@@ -25,7 +25,7 @@ use std::{
     path::{Path, PathBuf},
     process,
     str::FromStr,
-    sync::Arc, fs::{create_dir_all, remove_dir_all},
+    sync::Arc, fs::remove_dir_all,
 };
 use tar::Archive;
 use time::{Duration, OffsetDateTime, PrimitiveDateTime};
@@ -324,12 +324,14 @@ impl IndexerState {
         }
     }
 
+    #[instrument]
     pub fn from_snapshot_full(
-        rocksdb_path: impl AsRef<Path>,
+        rocksdb_path: impl AsRef<Path> + std::fmt::Debug,
         transition_frontier_length: u32,
         prune_interval: u32,
         canonical_update_threshold: u32,
     ) -> anyhow::Result<Self> {
+        trace!("initializing indexer store from path {}", rocksdb_path.as_ref().display());
         let indexer_store = IndexerStore::new(rocksdb_path.as_ref())?;
 
         if let Some(snapshot) = indexer_store.read_snapshot()? {
@@ -345,6 +347,7 @@ impl IndexerState {
                     .clone(),
                 node_id: best_tip_id,
             };
+            trace!("read best tip {:?}", best_tip.state_hash);
 
             let canonical_tip_id = if let Some(canonical_tip_id) = snapshot
                 .root_branch
@@ -366,6 +369,7 @@ impl IndexerState {
                     .clone(),
                 node_id: canonical_tip_id,
             };
+            trace!("read canonical tip {:?}", canonical_tip.state_hash);
 
             Ok(Self {
                 mode: IndexerMode::Full,
