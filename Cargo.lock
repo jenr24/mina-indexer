@@ -2485,6 +2485,7 @@ dependencies = [
  "rocksdb",
  "rust_decimal",
  "rust_decimal_macros",
+ "rustc-hash",
  "serde",
  "serde_derive",
  "serde_json",

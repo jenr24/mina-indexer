@@ -37,6 +37,7 @@ pub mod branch;
 pub mod ledger;
 pub mod snapshot;
 pub mod summary;
+pub mod witness;
 
 /// Rooted forest of precomputed block summaries aka the witness tree
 /// `root_branch` - represents the tree of blocks connecting back to a known ledger state, e.g. genesis
@@ -750,7 +751,7 @@ impl IndexerState {
         for (index, dangling_branch) in self.dangling_branches.iter_mut().enumerate() {
             let min_length = dangling_branch.root_block().blockchain_length.unwrap_or(0);
             let max_length = dangling_branch
-                .best_tip()
+                .best_tip_block()
                 .unwrap()
                 .blockchain_length
                 .unwrap_or(0);

@@ -13,6 +13,8 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{instrument, trace};
 
+use super::Tip;
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Branch {
     pub root: NodeId,
@@ -110,6 +112,18 @@ impl Branch {
         best_tip_id
     }
 
+    pub fn best_tip(&self) -> Tip {
+        let best_tip_id = self.best_tip_id();
+        let state_hash = self.branches
+            .get(&best_tip_id)
+            .expect("best_tip_id() always gives valid NodeID")
+            .data().state_hash.clone();
+        Tip {
+            state_hash,
+            node_id: best_tip_id,
+        }
+    }
+
     #[instrument(skip(self))]
     /// Returns the node id of the canonical tip, if it exists
     pub fn canonical_tip_id(&self, _canonical_update_threshold: u32) -> Option<NodeId> {
@@ -127,6 +141,16 @@ impl Branch {
             }
         }
         None
+    }
+
+    pub fn canonical_tip(&self, canonical_update_threshold: usize) -> Option<Tip> {
+        self.canonical_tip_id(canonical_update_threshold as u32).map(|node_id| {
+            let state_hash = self.branches
+                .get(&node_id)
+                .expect("canonical_tip_id() always gives valid NodeID")
+                .data().state_hash.clone();
+            Tip { state_hash, node_id }
+        })
     }
 
     /// Returns the new node's id in the branch and its data
@@ -155,6 +179,29 @@ impl Branch {
                     .expect("node_id comes from branches iterator, cannot be invalid");
 
                 return Some((new_node_id, new_block));
+            }
+        }
+        None
+    }
+
+    pub fn extension(&mut self, block: Block) -> Option<NodeId> {
+        let root_node_id = self
+            .branches
+            .root_node_id()
+            .expect("root_node_id guaranteed by constructor");
+        for this_id in self
+            .branches
+            .traverse_post_order_ids(root_node_id)
+            .expect("root_node_id guaranteed")
+        {
+            let this_block = self
+                .branches.get(&this_id)
+                .expect("iterator produces valid NodeId's").data();
+            if this_block.parent_hash == block.state_hash {
+                return Some(self.branches
+                    .insert(Node::new(block), UnderNode(&this_id))
+                    .expect("iterator produces valid NodeId's")
+                );
             }
         }
         None
@@ -402,7 +449,7 @@ impl Branch {
     }
 
     // Always returns some for a non-empty tree
-    pub fn best_tip(&self) -> Option<Block> {
+    pub fn best_tip_block(&self) -> Option<Block> {
         self.best_tip_with_id().map(|(_, x)| x)
     }
 
