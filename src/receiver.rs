@@ -1,5 +1,4 @@
 use async_priority_channel as priority;
-use async_trait::async_trait;
 use serde_derive::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -22,20 +21,26 @@ use watchexec::{
 
 use crate::block::{parse_file, parser::BlockParser, precomputed::PrecomputedBlock};
 
+pub enum BlockReceiverResult {
+    BlockReceived(PrecomputedBlock),
+    BlockParseError(String),
+    EndOfStream
+}
+
 #[derive(Debug, Clone, Hash, Serialize, Deserialize, Error)]
 pub enum FilesystemReceiverError {
     WatchTargetIsNotADirectory(PathBuf),
     WorkerRuntimeError(String),
 }
 pub type FilesystemReceiverResult<T> = std::result::Result<T, FilesystemReceiverError>;
-pub struct FilesystemReceiver {
+pub struct BlockReceiver {
     parsers: Vec<BlockParser>,
     worker_command_sender: Sender<WorkingData>,
     worker_event_receiver: priority::Receiver<Event, Priority>,
     worker_error_receiver: mpsc::Receiver<RuntimeError>,
 }
 
-impl FilesystemReceiver {
+impl BlockReceiver {
     #[instrument]
     pub async fn new(
         event_capacity: usize,
@@ -97,11 +102,8 @@ impl FilesystemReceiver {
 
         Ok(())
     }
-}
 
-#[async_trait]
-impl super::BlockReceiver for FilesystemReceiver {
-    async fn recv_block(&mut self) -> Result<Option<PrecomputedBlock>, anyhow::Error> {
+    pub async fn recv_block(&mut self) -> Result<BlockReceiverResult, anyhow::Error> {
         loop {
             tokio::select! {
                 error_fut = self.worker_error_receiver.recv() => {
@@ -110,7 +112,7 @@ impl super::BlockReceiver for FilesystemReceiver {
                             .map_err(|e| FilesystemReceiverError::WorkerRuntimeError(e.to_string()).into()
                         );
                     }
-                    return Ok(None);
+                    return Ok(BlockReceiverResult::EndOfStream);
                 },
                 event_fut = self.worker_event_receiver.recv() => {
                     if let Ok((event, _priority)) = event_fut {
@@ -135,8 +137,10 @@ impl super::BlockReceiver for FilesystemReceiver {
 
                             if let Some((path, Some(_filetype))) = path_and_filetype {
                                 match parse_file(path.as_path()).await {
-                                    Ok(block) => return Ok(Some(block)),
-                                    Err(_) => continue,
+                                    Ok(block) => 
+                                        return Ok(BlockReceiverResult::BlockReceived(block)),
+                                    Err(e) => 
+                                        return Ok(BlockReceiverResult::BlockParseError(e.to_string())),
                                 }
                             }
                         }

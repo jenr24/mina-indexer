@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use mina_indexer::receiver::{filesystem::FilesystemReceiver, BlockReceiver};
+use mina_indexer::receiver::BlockReceiver;
 use tokio::{
     fs::{create_dir, metadata, remove_dir_all, File},
     io::AsyncWriteExt,

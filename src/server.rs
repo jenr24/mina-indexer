@@ -1,6 +1,6 @@
 use crate::{
     block::{parser::BlockParser, store::BlockStore, Block, BlockHash, BlockWithoutHeight},
-    receiver::{filesystem::FilesystemReceiver, BlockReceiver},
+    receiver::{BlockReceiver, BlockReceiverResult},
     state::{
         ledger::{genesis::GenesisRoot, public_key::PublicKey, Ledger},
         summary::{SummaryShort, SummaryVerbose},
@@ -27,7 +27,7 @@ use tokio::{
     sync::{mpsc, watch},
     task::JoinHandle,
 };
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 pub struct IndexerConfiguration {
     pub ledger: GenesisRoot,
@@ -237,7 +237,7 @@ pub async fn run(
     use MinaIndexerRunPhase::*;
 
     phase_sender.send_replace(StartingBlockReceiver);
-    let mut filesystem_receiver = FilesystemReceiver::new(1024, 64).await?;
+    let mut filesystem_receiver = BlockReceiver::new(1024, 64).await?;
     filesystem_receiver.load_directory(block_watch_dir.as_ref())?;
     info!("Block receiver set to watch {:?}", block_watch_dir.as_ref());
 
@@ -287,15 +287,21 @@ pub async fn run(
 
             block_fut = filesystem_receiver.recv_block() => {
                 phase_sender.send_replace(ReceivingBlock);
-                if let Some(precomputed_block) = block_fut? {
-                    let block = BlockWithoutHeight::from_precomputed(&precomputed_block);
-                    debug!("Receiving block {block:?}");
+                match block_fut? {
+                    BlockReceiverResult::BlockReceived(precomputed_block) => {
+                        let block = BlockWithoutHeight::from_precomputed(&precomputed_block);
+                        debug!("Receiving block {block:?}");
 
-                    state.add_block(&precomputed_block)?;
-                    info!("Added {block:?}");
-                } else {
-                    info!("Block receiver shutdown, system exit");
-                    return Ok(())
+                        state.add_block(&precomputed_block)?;
+                        info!("Added {block:?}");
+                    },
+                    BlockReceiverResult::BlockParseError(error) => {
+                        warn!("Unable to parse file: {}", error.to_string());
+                    },
+                    BlockReceiverResult::EndOfStream => {
+                        info!("Block receiver shutdown, system exit");
+                        return Ok(())
+                    },
                 }
             }
 
