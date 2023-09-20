@@ -16,6 +16,12 @@ test = true
 name = "staking-ledger-ingestion"
 test = false
 
+[[bin]]
+name = "iggy"
+version = "0.1.0"
+test = false
+bench = false
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

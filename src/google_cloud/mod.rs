@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_ringbuf::{AsyncHeapConsumer, AsyncHeapRb};
-use async_trait::async_trait;
+use clap::{builder::OsStr, ValueEnum};
 use serde_derive::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, watch},
@@ -21,7 +21,7 @@ use self::worker::{
 
 pub mod worker;
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(ValueEnum, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum MinaNetwork {
     #[serde(rename = "mainnet")]
     Mainnet,
