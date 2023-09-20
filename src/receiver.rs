@@ -22,7 +22,7 @@ use watchexec::{
 use crate::block::{parse_file, parser::BlockParser, precomputed::PrecomputedBlock};
 
 pub enum BlockReceiverResult {
-    BlockReceived(PrecomputedBlock),
+    BlockReceived(Box<PrecomputedBlock>),
     BlockParseError(String),
     EndOfStream,
 }
@@ -138,7 +138,7 @@ impl BlockReceiver {
                             if let Some((path, Some(_filetype))) = path_and_filetype {
                                 match parse_file(path.as_path()).await {
                                     Ok(block) =>
-                                        return Ok(BlockReceiverResult::BlockReceived(block)),
+                                        return Ok(BlockReceiverResult::BlockReceived(Box::new(block))),
                                     Err(e) =>
                                         return Ok(BlockReceiverResult::BlockParseError(e.to_string())),
                                 }
