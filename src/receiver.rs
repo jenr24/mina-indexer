@@ -24,7 +24,7 @@ use crate::block::{parse_file, parser::BlockParser, precomputed::PrecomputedBloc
 pub enum BlockReceiverResult {
     BlockReceived(PrecomputedBlock),
     BlockParseError(String),
-    EndOfStream
+    EndOfStream,
 }
 
 #[derive(Debug, Clone, Hash, Serialize, Deserialize, Error)]
@@ -137,9 +137,9 @@ impl BlockReceiver {
 
                             if let Some((path, Some(_filetype))) = path_and_filetype {
                                 match parse_file(path.as_path()).await {
-                                    Ok(block) => 
+                                    Ok(block) =>
                                         return Ok(BlockReceiverResult::BlockReceived(block)),
-                                    Err(e) => 
+                                    Err(e) =>
                                         return Ok(BlockReceiverResult::BlockParseError(e.to_string())),
                                 }
                             }
