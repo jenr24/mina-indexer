@@ -15,7 +15,8 @@ pub struct IggyCli {
     batch_size: u64,
     #[arg(short, long, default_value_t = 1000)]
     poll_freq_ms: u64,
-    #[arg(short, long, default_value = MinaNetwork::Mainnet)]
+    #[clap(value_enum)]
+    #[arg(short, long, default_value_t = MinaNetwork::Mainnet)]
     mina_network: MinaNetwork,
     #[arg(short, long, default_value = "mina_network_block_data")]
     google_cloud_bucket: String
