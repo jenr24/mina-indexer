@@ -19,8 +19,6 @@ use self::worker::{
     GoogleCloudBlockWorkerError,
 };
 
-use super::BlockReceiver;
-
 pub mod worker;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -118,10 +116,7 @@ impl GoogleCloudBlockReceiver {
             .map_err(GoogleCloudBlockReceiverError::CommandError)?;
         Ok(self.worker_data_receiver.borrow().clone())
     }
-}
 
-#[async_trait]
-impl BlockReceiver for GoogleCloudBlockReceiver {
     #[instrument(skip(self))]
     async fn recv_block(&mut self) -> Result<Option<PrecomputedBlock>, anyhow::Error> {
         tokio::select! {
