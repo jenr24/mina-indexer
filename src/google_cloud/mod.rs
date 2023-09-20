@@ -4,7 +4,7 @@ use std::{
 };
 
 use async_ringbuf::{AsyncHeapConsumer, AsyncHeapRb};
-use clap::{builder::OsStr, ValueEnum};
+use clap::ValueEnum;
 use serde_derive::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, watch},
@@ -118,7 +118,7 @@ impl GoogleCloudBlockReceiver {
     }
 
     #[instrument(skip(self))]
-    async fn recv_block(&mut self) -> Result<Option<PrecomputedBlock>, anyhow::Error> {
+    pub async fn recv_block(&mut self) -> Result<Option<PrecomputedBlock>, anyhow::Error> {
         tokio::select! {
             block = self.blocks_consumer.pop() => {
                 info!("received block from GoogleCloudBlockWorker");

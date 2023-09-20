@@ -1,14 +1,13 @@
 use std::{path::PathBuf, time::Duration};
 
 use clap::Parser;
-use mina_indexer::google_cloud::{GoogleCloudBlockReceiver, MinaNetwork};
+use mina_indexer::google_cloud::{MinaNetwork, worker::gsutil_download_blocks};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct IggyCli {
-    /// Directory to output files to, uses stdout if none provided
-    #[arg(short, long, default_value = None)]
-    output_dir: Option<PathBuf>,
+    #[arg(short, long)]
+    output_dir: PathBuf,
     #[arg(short, long, default_value_t = 0)]
     start_from: u64,
     #[arg(short, long, default_value_t = 1)]
@@ -16,7 +15,7 @@ pub struct IggyCli {
     #[arg(short, long, default_value_t = 1000)]
     poll_freq_ms: u64,
     #[clap(value_enum)]
-    #[arg(short, long, default_value_t = MinaNetwork::Mainnet)]
+    #[arg(short, long)]
     mina_network: MinaNetwork,
     #[arg(short, long, default_value = "mina_network_block_data")]
     google_cloud_bucket: String
@@ -32,12 +31,14 @@ pub async fn main() -> anyhow::Result<()> {
         tokio::fs::remove_dir_all(&temp_blocks_dir).await?;
     }
 
-
-    let receiver = GoogleCloudBlockReceiver::new(
-        cli_args.start_from, cli_args.batch_size, 
-        &temp_blocks_dir, 
-        poll_freq, cli_args.mina_network, cli_args.google_cloud_bucket
-    ).await?;
-
-    Ok(())
+    let mut start_from = cli_args.start_from;
+    loop {
+        tokio::time::sleep(poll_freq).await;
+        gsutil_download_blocks(
+            &cli_args.output_dir, 
+            start_from, cli_args.batch_size, 
+            &cli_args.google_cloud_bucket, cli_args.mina_network
+        ).await?;
+        start_from = start_from + cli_args.batch_size;
+    }
 }

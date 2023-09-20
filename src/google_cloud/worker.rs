@@ -154,7 +154,7 @@ impl GoogleCloudBlockWorker {
 }
 
 #[instrument]
-async fn gsutil_download_blocks(
+pub async fn gsutil_download_blocks(
     temp_blocks_dir: impl AsRef<Path> + std::fmt::Debug,
     max_height: u64,
     overlap_num: u64,
