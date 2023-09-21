@@ -41,6 +41,9 @@ idxr server config --path ./tests/empty.config.yaml 2>&1 |
     grep -iq "Error:"
 
 # Indexer server config parses example yaml config file
+rm -rf ${TMP}/{startup,watch,rocksdb,logs}
+mkdir ${TMP}/{startup,watch,rocksdb,logs}
 idxr server config --path ./tests/minimal.config.yaml 
+rm -rf ${TMP}/{startup,watch,rocksdb,logs}
 
 echo "Done"

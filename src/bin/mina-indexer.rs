@@ -8,6 +8,7 @@ use mina_indexer::{
     CANONICAL_UPDATE_THRESHOLD, MAINNET_CANONICAL_THRESHOLD, MAINNET_GENESIS_HASH,
     MAINNET_TRANSITION_FRONTIER_K, PRUNE_INTERVAL_DEFAULT,
 };
+use regex::Regex;
 use serde::Deserializer;
 use serde_derive::Deserialize;
 use std::{path::PathBuf, sync::Arc};
@@ -66,15 +67,19 @@ pub struct ServerArgs {
     )]
     root_hash: String,
     /// Path to startup blocks directory
+    #[serde(deserialize_with = "local_path_deserializer")]
     #[arg(short, long, default_value = concat!(env!("HOME"), "/.mina-indexer/startup-blocks"))]
     startup_dir: PathBuf,
     /// Path to directory to watch for new blocks
+    #[serde(deserialize_with = "local_path_deserializer")]
     #[arg(short, long, default_value = concat!(env!("HOME"), "/.mina-indexer/watch-blocks"))]
     watch_dir: PathBuf,
     /// Path to directory for rocksdb
+    #[serde(deserialize_with = "local_path_deserializer")]
     #[arg(short, long, default_value = concat!(env!("HOME"), "/.mina-indexer/database"))]
     pub database_dir: PathBuf,
     /// Path to directory for logs
+    #[serde(deserialize_with = "local_path_deserializer")]
     #[arg(long, default_value = concat!(env!("HOME"), "/.mina-indexer/logs"))]
     pub log_dir: PathBuf,
     /// Only store canonical blocks in the db
@@ -100,6 +105,56 @@ pub struct ServerArgs {
     /// Path to an indexer snapshot
     #[arg(long)]
     pub snapshot_path: Option<PathBuf>,
+}
+
+lazy_static::lazy_static! {
+    static ref ENV_VAR_REGEX: Regex =
+        Regex::new(r"^(\$)[A-Z]+$").expect("regex compiles");
+    static ref PATH_REGEX: Regex =
+        Regex::new(r"^(.+)\/([^\/]+)(\/)?$").expect("regex compiles");
+}
+
+#[derive(Debug)]
+pub enum PathResult {
+    Path(PathBuf),
+    VarError(String),
+    NotPath
+}
+
+fn parse_local_path(path: impl AsRef<str>) -> PathResult {
+    if PATH_REGEX.is_match(path.as_ref()) {
+        let mut evaluated_path = PathBuf::new();
+        for segment in path.as_ref().split('/') {
+            if ENV_VAR_REGEX.is_match(segment) {
+                match std::env::var(&segment[1..]) {
+                    Ok(env_var) =>
+                        evaluated_path.push(&env_var),
+                    Err(e) =>
+                        return PathResult::VarError(e.to_string()),
+                }
+            } else {
+                evaluated_path.push(segment);
+            }
+        }
+        PathResult::Path(evaluated_path)
+    } else {
+        PathResult::NotPath
+    }
+}
+
+#[test]
+fn local_paths_parse() {
+    const PATHS: &'static [&'static str] = &[
+        "$HOME/.mina_indexer",
+        "$HOME/logs/",
+        "$TMP/hello"
+    ];
+
+    for path in PATHS {
+        let path_result = parse_local_path(*path);
+        println!("{path}: {path_result:?}");
+        assert!(matches!(path_result, PathResult::Path(_)));
+    }
 }
 
 #[tokio::main]
@@ -215,6 +270,38 @@ pub async fn handle_command_line_arguments(
             })
         }
     }
+}
+
+/// deserialize Strings into PathBuf's, evaluating Environment Variables
+pub fn local_path_deserializer<'de, D>(deserializer: D) -> Result<PathBuf, D::Error>
+where D: Deserializer<'de>,
+{
+    // visit a String from the deserialization context
+    struct YAMLStringVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for YAMLStringVisitor {
+        // parse a PathBuf from the visited String
+        type Value = PathBuf;
+
+        // description of the Visitor's expected data
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a yaml string containing a path optionally containing environment variables")
+        }
+        
+        // deserialize the visited String potentially into a PathBuf (: Self::Value)
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where E: serde::de::Error, 
+        {
+            let local_path_str: &str = serde_yaml::from_str(v).map_err(E::custom)?;
+            match parse_local_path(local_path_str) {
+                PathResult::Path(path) => Ok(path),
+                PathResult::VarError(e) => Err(E::custom(e)),
+                PathResult::NotPath => Err(E::custom("not a path"))
+            }
+        }
+    }
+
+    deserializer.deserialize_any(YAMLStringVisitor)
 }
 
 pub fn level_filter_deserializer<'de, D>(deserializer: D) -> Result<LevelFilter, D::Error>
