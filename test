@@ -17,6 +17,16 @@ idxr() {
     ./target/debug/mina-indexer "$@" 
 }
 
+blocks() {
+    ./target/debug/mina-blocks "$@"
+}
+
+# Block Downloader binary exists
+mkdir $TMP/blocks
+blocks 2>&1 |
+    grep -iq "Usage:"
+rm -rf $TMP/blocks
+
 # Indexer reports usage with no arguments
 idxr 2>&1 | 
     grep -iq "Usage:"
@@ -36,11 +46,11 @@ idxr server config 2>&1 |
 # Indexer server cli subcommand works
 idxr server cli --help > /dev/null
 
-# Indexer server config parses example yaml config file
+# Indexer server config parses empty yaml config file
 idxr server config --path ./tests/empty.config.yaml 2>&1 |
     grep -iq "Error:"
 
-# Indexer server config parses example yaml config file
+# Indexer server config parses minimal yaml config file
 rm -rf ${TMP}/{startup,watch,rocksdb,logs}
 mkdir -p ${TMP}/{startup,watch,rocksdb,logs}
 idxr server config --path ./tests/minimal.config.yaml &
