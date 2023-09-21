@@ -42,8 +42,14 @@ idxr server config --path ./tests/empty.config.yaml 2>&1 |
 
 # Indexer server config parses example yaml config file
 rm -rf ${TMP}/{startup,watch,rocksdb,logs}
-mkdir ${TMP}/{startup,watch,rocksdb,logs}
-idxr server config --path ./tests/minimal.config.yaml 
-rm -rf ${TMP}/{startup,watch,rocksdb,logs}
+mkdir -p ${TMP}/{startup,watch,rocksdb,logs}
+idxr server config --path ./tests/minimal.config.yaml &
+export IDXR_PID=$(pgrep "mina-indexer" | head)
+idxr client summary > $TMP/summary | echo
+cat $TMP/summary |
+    grep "Error: Connection refused (os error 111)"
+kill $IDXR_PID
+rm -rf ${TMP}/{startup,watch,rocksdb,logs,summary}
+wait
 
-echo "Done"
+echo  "All Tests Passed! :)"
