@@ -1,10 +1,21 @@
 #!/bin/sh
 set -ex
 
+setup() {
+    mkdir $TMP/mina-blocks
+    mkdir -p ${TMP}/{startup,watch,rocksdb,logs}
+}
+
 cleanup() {
     echo "Exiting with $?"
+    rm -rf $TMP/mina-blocks
+    rm -rf ${TMP}/{startup,watch,rocksdb,logs}
+}
+count_files() {
+    find $1 ! -wholename $1 -prune -print | grep -c /
 }
 trap cleanup EXIT
+setup()
 
 # cargo fmt --check
 # cargo check
@@ -22,10 +33,15 @@ blocks() {
 }
 
 # Block Downloader binary exists
-mkdir $TMP/blocks
 blocks 2>&1 |
-    grep -iq "Usage:"
-rm -rf $TMP/blocks
+    grep "Usage: mina-blocks"
+
+# Block Downloader binary downloads blocks from heights 0-5
+blocks -n 5 -s 0 -o $TMP/mina-blocks -m mainnet -b mina_network_blocks
+if [ $(count_files $TMP/mina-blocks) != 5 ]; then
+    ls $TMP/mina-blocks
+    exit 1
+fi
 
 # Indexer reports usage with no arguments
 idxr 2>&1 | 
@@ -51,15 +67,12 @@ idxr server config --path ./tests/empty.config.yaml 2>&1 |
     grep -iq "Error:"
 
 # Indexer server config parses minimal yaml config file
-rm -rf ${TMP}/{startup,watch,rocksdb,logs}
-mkdir -p ${TMP}/{startup,watch,rocksdb,logs}
 idxr server config --path ./tests/minimal.config.yaml &
 export IDXR_PID=$(pgrep "mina-indexer" | head)
 idxr client summary > $TMP/summary | echo
 cat $TMP/summary |
     grep "Error: Connection refused (os error 111)"
 kill $IDXR_PID
-rm -rf ${TMP}/{startup,watch,rocksdb,logs,summary}
 wait
 
 echo  "All Tests Passed! :)"

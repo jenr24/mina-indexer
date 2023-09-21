@@ -9,6 +9,11 @@ test = true
 bench = false
 
 [[bin]]
+name = "mina-blocks"
+test = true
+bench = false
+
+[[bin]]
 name = "mainnet-test"
 test = true
 
