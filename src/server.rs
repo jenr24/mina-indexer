@@ -26,7 +26,7 @@ use tokio::{
     sync::{mpsc, watch, RwLock},
     task::JoinHandle,
 };
-use tracing::{debug, info, instrument, error};
+use tracing::{debug, info, instrument};
 
 pub struct IndexerConfiguration {
     pub ledger: GenesisRoot,
