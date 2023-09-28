@@ -11,6 +11,7 @@ use futures::{
     io::{AsyncWriteExt, BufReader},
     AsyncReadExt,
 };
+use futures_util::AsyncBufReadExt;
 use interprocess::local_socket::tokio::LocalSocketStream;
 use serde_derive::{Deserialize, Serialize};
 use std::{path::PathBuf, process, time::Duration};
@@ -91,7 +92,7 @@ pub async fn run(command: &ClientCli, output_json: bool) -> Result<(), anyhow::E
     let (reader, mut writer) = conn.into_split();
     let mut reader = BufReader::new(reader);
 
-    let mut buffer = Vec::with_capacity(1024 * 1024); // 1mb
+    let mut buffer = Vec::with_capacity(1024 * 1024);
 
     match command {
         ClientCli::Account(account_args) => {
@@ -114,15 +115,20 @@ pub async fn run(command: &ClientCli, output_json: bool) -> Result<(), anyhow::E
             let command = format!("best_chain {}\0", chain_args.num);
             writer.write_all(command.as_bytes()).await?;
             reader.read_to_end(&mut buffer).await?;
-            let blocks: Vec<PrecomputedBlock> = bcs::from_bytes(&buffer)?;
-            for block in blocks.iter() {
-                if output_json {
-                    stdout()
-                        .write_all(serde_json::to_string(block)?.as_bytes())
-                        .await?;
-                } else {
-                    let block = Block::from_precomputed(block, block.blockchain_length);
-                    stdout().write_all(block.summary().as_bytes()).await?;
+            let blocks: Option<Vec<PrecomputedBlock>> = bcs::from_bytes(&buffer)?;
+            match blocks {
+                None => { stdout().write_all(b"The indexer is still initializing...\n").await?;},
+                Some(blocks) => {
+                    for block in blocks.iter() {
+                        if output_json {
+                            stdout()
+                                .write_all(serde_json::to_string(block)?.as_bytes())
+                                .await?;
+                        } else {
+                            let block = Block::from_precomputed(block, block.blockchain_length);
+                            stdout().write_all(block.summary().as_bytes()).await?;
+                        }
+                    }
                 }
             }
         }
@@ -134,9 +140,13 @@ pub async fn run(command: &ClientCli, output_json: bool) -> Result<(), anyhow::E
             println!("{msg}");
         }
         ClientCli::Summary(summary_args) => {
+
             let command = format!("summary {}\0", summary_args.verbose);
             writer.write_all(command.as_bytes()).await?;
-            reader.read_to_end(&mut buffer).await?;
+            let read_size = reader.read_until(0, &mut buffer).await.unwrap_or(0);
+            if read_size == 0 {
+                process::exit(1);
+            }
             if summary_args.verbose {
                 let summary: SummaryVerbose = bcs::from_bytes(&buffer)?;
                 if output_json {

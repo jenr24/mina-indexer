@@ -871,9 +871,7 @@ impl IndexerState {
     }
 
     // TODO: maybe we should add another function for getting a ledger at a specific slot/"height"?
-    pub fn best_ledger(&mut self) -> anyhow::Result<Option<Ledger>> {
-        self.update_canonical()?;
-
+    pub fn best_ledger(&self) -> anyhow::Result<Option<Ledger>> {
         // get the most recent canonical ledger
         if let Some(indexer_store) = &self.indexer_store {
             if let Some(mut ledger) =

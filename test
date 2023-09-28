@@ -3,6 +3,9 @@ set -ex
 
 cleanup() {
     echo "Exiting with $?"
+    IDXR_PID=$(pgrep mina-indexer)
+    kill $IDXR_PID
+    wait
 }
 trap cleanup EXIT
 
@@ -36,11 +39,24 @@ idxr server config 2>&1 |
 # Indexer server cli subcommand works
 idxr server cli --help > /dev/null
 
-# Indexer server config parses example yaml config file
+# Indexer server cli starts with minimum required args
 idxr server cli \
     --initial-ledger tests/ledgers/mainnet-genesis.json \
     --is-genesis-ledger \
-    --root-hash 3NKeMoncuHab5ScarV5ViyF16cJPT4taWNSaTLS64Dp67wuXigPZ \
-    
+    --root-hash 3NKeMoncuHab5ScarV5ViyF16cJPT4taWNSaTLS64Dp67wuXigPZ &
+IDXR_PID=$(pgrep mina-indexer)
+kill $IDXR_PID
+wait
+
+# Indexer server cli can be queried immediately
+idxr server cli \
+    --initial-ledger tests/ledgers/mainnet-genesis.json \
+    --is-genesis-ledger \
+    --root-hash 3NKeMoncuHab5ScarV5ViyF16cJPT4taWNSaTLS64Dp67wuXigPZ &
+sleep 5
+idxr client best-chain -n 100
+IDXR_PID=$(pgrep mina-indexer)
+kill $IDXR_PID
+wait
 
 echo "Done"
