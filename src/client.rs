@@ -117,7 +117,11 @@ pub async fn run(command: &ClientCli, output_json: bool) -> Result<(), anyhow::E
             reader.read_to_end(&mut buffer).await?;
             let blocks: Option<Vec<PrecomputedBlock>> = bcs::from_bytes(&buffer)?;
             match blocks {
-                None => { stdout().write_all(b"The indexer is still initializing...\n").await?;},
+                None => {
+                    stdout()
+                        .write_all(b"The indexer is still initializing...\n")
+                        .await?;
+                }
                 Some(blocks) => {
                     for block in blocks.iter() {
                         if output_json {
@@ -140,7 +144,6 @@ pub async fn run(command: &ClientCli, output_json: bool) -> Result<(), anyhow::E
             println!("{msg}");
         }
         ClientCli::Summary(summary_args) => {
-
             let command = format!("summary {}\0", summary_args.verbose);
             writer.write_all(command.as_bytes()).await?;
             let read_size = reader.read_until(0, &mut buffer).await.unwrap_or(0);

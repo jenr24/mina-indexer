@@ -1,5 +1,8 @@
 use crate::{
-    block::{parser::BlockParser, store::BlockStore, BlockHash, BlockWithoutHeight, precomputed::PrecomputedBlock},
+    block::{
+        parser::BlockParser, precomputed::PrecomputedBlock, store::BlockStore, BlockHash,
+        BlockWithoutHeight,
+    },
     receiver::{filesystem::FilesystemReceiver, BlockReceiver},
     state::{
         ledger::{genesis::GenesisRoot, public_key::PublicKey},
@@ -98,11 +101,19 @@ impl MinaIndexer {
         let state_store = store.clone();
         let _loop_join_handle = tokio::spawn(async move {
             let watch_dir = config.watch_dir.clone();
-            let phase_sender = initialize(config, state_store, phase_sender, &loop_state_lock).await?;
-            run(watch_dir, &loop_state_lock, phase_sender, query_receiver, save_rx, save_resp_tx).await
+            let phase_sender =
+                initialize(config, state_store, phase_sender, &loop_state_lock).await?;
+            run(
+                watch_dir,
+                &loop_state_lock,
+                phase_sender,
+                query_receiver,
+                save_rx,
+                save_resp_tx,
+            )
+            .await
         });
 
-        let listener_store = store.clone();
         tokio::spawn(async move {
             LocalSocketStream::connect(SOCKET_NAME)
                 .await
@@ -123,147 +134,201 @@ impl MinaIndexer {
                 }
             });
 
-            loop { match listener.accept().await {
-                Err(_e) => {
-                    process::exit(1);
-                },
-                Ok(stream) => {
-                    let indexer_state = loop {
-                        if let Ok(state) = state_lock.try_read() {
-                            break state;
-                        }
-                    };
-                    let (reader, mut writer) = stream.into_split();
-                    let mut reader = BufReader::new(reader);
-                    let mut buffer = Vec::with_capacity(1024);
-                    let read_size = reader.read_until(0, &mut buffer).await.unwrap_or(0);
-                    if read_size == 0 {
-                        continue;
+            loop {
+                match listener.accept().await {
+                    Err(_e) => {
+                        process::exit(1);
                     }
-                    let mut buffers = buffer.split(|byte| *byte == b' ');
-                    let command = buffers.next().unwrap();
-                    let command_string = String::from_utf8(command.to_vec()).unwrap();
-                    match command_string.as_str() {
-                        "account" => {
-                            let data_buffer = buffers.next().unwrap();
-                            let public_key = PublicKey::from_address(&String::from_utf8(
-                                data_buffer[..data_buffer.len() - 1].to_vec(),
-                            ).unwrap()).unwrap();
-                            match indexer_state.as_ref() {
-                                None => writer.write_all(b"Mina Indexer state still initializing, please wait").await.unwrap(),
-                                Some(state) => {
-                                    let ledger = state
-                                        .best_ledger().unwrap().unwrap();
-                                    let account = ledger.accounts.get(&public_key);
-                                    if let Some(account) = account {
-                                        let bytes = bcs::to_bytes(account).unwrap();
-                                        writer.write_all(&bytes).await.unwrap();
-                                    }
-                                },
+                    Ok(stream) => {
+                        let indexer_state = loop {
+                            if let Ok(state) = state_lock.try_read() {
+                                break state;
                             }
-                        }
-                        "best_chain" => {
-                            info!("Received best_chain command");
-                            let data_buffer = buffers.next().unwrap();
-                            let num = String::from_utf8(data_buffer[..data_buffer.len() - 1].to_vec())
-                                .unwrap()
-                                .parse::<usize>().unwrap();
-                            match indexer_state.as_ref() {
-                                None => writer.write_all(&bcs::to_bytes::<Option<Vec<PrecomputedBlock>>>(&None).unwrap()).await.unwrap(),
-                                Some(state) => {
-                                    let best_tip = state.best_tip_block().clone();
-                                    let mut parent_hash = best_tip.parent_hash;
-                                    let mut best_chain = vec![listener_store.get_block(&best_tip.state_hash).unwrap().unwrap()];
-                                    for _ in 1..num {
-                                        let parent_pcb = listener_store.get_block(&parent_hash).unwrap().unwrap();
-                                        parent_hash =
-                                            BlockHash::from_hashv1(parent_pcb.protocol_state.previous_state_hash.clone());
-                                        best_chain.push(parent_pcb);
-                                    }
-                                    let bytes = bcs::to_bytes(&Some(best_chain)).unwrap();
-                                    writer.write_all(&bytes).await.unwrap();
-                                }
-                            }
-                        }
-                        "best_ledger" => {
-                            info!("Received best_ledger command");
-                            let data_buffer = buffers.next().unwrap();
-                            let path = &String::from_utf8(data_buffer[..data_buffer.len() - 1].to_vec())
-                                .unwrap()
-                                .parse::<PathBuf>().unwrap();
-                            match indexer_state.as_ref() {
-                                None => writer.write_all(b"Mina Indexer state still initializing, please wait").await.unwrap(),
-                                Some(state) => {
-                                    let ledger = state
-                                        .best_ledger().unwrap().unwrap();
-                                    if !path.is_dir() {
-                                        debug!("Writing ledger to {}", path.display());
-                                        fs::write(path, format!("{ledger:?}")).await.unwrap();
-                                        let bytes = bcs::to_bytes(&format!("Ledger written to {}", path.display())).unwrap();
-                                        writer.write_all(&bytes).await.unwrap();
-                                    } else {
-                                        let bytes = bcs::to_bytes(&format!(
-                                            "The path provided must be a file: {}",
-                                            path.display()
-                                        )).unwrap();
-                                        writer.write_all(&bytes).await.unwrap();
-                                    }
-                                }
-                            }
-                        }
-                        "summary" => {
-                            info!("Received summary command");
-                            let data_buffer = buffers.next().unwrap();
-                            let verbose = String::from_utf8(data_buffer[..data_buffer.len() - 1].to_vec())
-                                .unwrap()
-                                .parse::<bool>().unwrap();
-                            match indexer_state.as_ref() {
-                                None => {
-                                    info!("Pre-init summary to client");
-                                    let _ = writer.write_all("Mina Indexer state still initializing, please wait".as_bytes())
-                                        .await
-                                        .map_err(|e| { info!("{e:?}"); });
-                                },
-                                Some(state) => {
-                                    if verbose {
-                                        let summary = state.summary_verbose();
-                                        let bytes = bcs::to_bytes(&summary).unwrap();
-                                        info!("Writing summary to client");
-                                        writer.write_all(&bytes).await.unwrap();
-                                    } else {
-                                        let summary = state.summary_short();
-                                        let bytes = bcs::to_bytes(&summary).unwrap();
-                                        info!("Writing summary to client");
-                                        writer.write_all(&bytes).await.unwrap();
-                                    }
-                                }
-                            }
-                        }
-                        "save_state" => {
-                            info!("Received save_state command");
-                            let data_buffer = buffers.next().unwrap();
-                            let snapshot_path = PathBuf::from(String::from_utf8(
-                                data_buffer[..data_buffer.len() - 1].to_vec(),
-                            ).unwrap());
-                            match indexer_state.as_ref() {
-                                None => writer.write_all(b"Mina Indexer state still initializing, please wait").await.unwrap(),
-                                Some(_state) => {
-                                    save_tx.send(SaveCommand(snapshot_path)).await.unwrap();
-                                    writer.write_all(b"saving snapshot...").await.unwrap();
-                                    match save_resp_rx.recv().unwrap() {
-                                        None => writer.write_all(b"Unable to save snapshot!").await.unwrap(),
-                                        Some(SaveResponse(resp)) => writer.write_all(resp.as_bytes()).await.unwrap(),
-                                    }
-                                    
-                                }
-                            }
-                        }
-                        _bad_request => {
+                        };
+                        let (reader, mut writer) = stream.into_split();
+                        let mut reader = BufReader::new(reader);
+                        let mut buffer = Vec::with_capacity(1024);
+                        let read_size = reader.read_until(0, &mut buffer).await.unwrap_or(0);
+                        if read_size == 0 {
                             continue;
                         }
+                        let mut buffers = buffer.split(|byte| *byte == b' ');
+                        let command = buffers.next().unwrap();
+                        let command_string = String::from_utf8(command.to_vec()).unwrap();
+                        match command_string.as_str() {
+                            "account" => {
+                                let data_buffer = buffers.next().unwrap();
+                                let public_key = PublicKey::from_address(
+                                    &String::from_utf8(
+                                        data_buffer[..data_buffer.len() - 1].to_vec(),
+                                    )
+                                    .unwrap(),
+                                )
+                                .unwrap();
+                                match indexer_state.as_ref() {
+                                    None => writer
+                                        .write_all(
+                                            b"Mina Indexer state still initializing, please wait",
+                                        )
+                                        .await
+                                        .unwrap(),
+                                    Some(state) => {
+                                        let ledger = state.best_ledger().unwrap().unwrap();
+                                        let account = ledger.accounts.get(&public_key);
+                                        if let Some(account) = account {
+                                            let bytes = bcs::to_bytes(account).unwrap();
+                                            writer.write_all(&bytes).await.unwrap();
+                                        }
+                                    }
+                                }
+                            }
+                            "best_chain" => {
+                                info!("Received best_chain command");
+                                let data_buffer = buffers.next().unwrap();
+                                let num = String::from_utf8(
+                                    data_buffer[..data_buffer.len() - 1].to_vec(),
+                                )
+                                .unwrap()
+                                .parse::<usize>()
+                                .unwrap();
+                                match indexer_state.as_ref() {
+                                    None => writer
+                                        .write_all(
+                                            &bcs::to_bytes::<Option<Vec<PrecomputedBlock>>>(&None)
+                                                .unwrap(),
+                                        )
+                                        .await
+                                        .unwrap(),
+                                    Some(state) => {
+                                        let best_tip = state.best_tip_block().clone();
+                                        let mut parent_hash = best_tip.parent_hash;
+                                        let mut best_chain = vec![store
+                                            .get_block(&best_tip.state_hash)
+                                            .unwrap()
+                                            .unwrap()];
+                                        for _ in 1..num {
+                                            let parent_pcb =
+                                                store.get_block(&parent_hash).unwrap().unwrap();
+                                            parent_hash = BlockHash::from_hashv1(
+                                                parent_pcb
+                                                    .protocol_state
+                                                    .previous_state_hash
+                                                    .clone(),
+                                            );
+                                            best_chain.push(parent_pcb);
+                                        }
+                                        let bytes = bcs::to_bytes(&Some(best_chain)).unwrap();
+                                        writer.write_all(&bytes).await.unwrap();
+                                    }
+                                }
+                            }
+                            "best_ledger" => {
+                                info!("Received best_ledger command");
+                                let data_buffer = buffers.next().unwrap();
+                                let path = &String::from_utf8(
+                                    data_buffer[..data_buffer.len() - 1].to_vec(),
+                                )
+                                .unwrap()
+                                .parse::<PathBuf>()
+                                .unwrap();
+                                match indexer_state.as_ref() {
+                                    None => writer
+                                        .write_all(
+                                            b"Mina Indexer state still initializing, please wait",
+                                        )
+                                        .await
+                                        .unwrap(),
+                                    Some(state) => {
+                                        let ledger = state.best_ledger().unwrap().unwrap();
+                                        if !path.is_dir() {
+                                            debug!("Writing ledger to {}", path.display());
+                                            fs::write(path, format!("{ledger:?}")).await.unwrap();
+                                            let bytes = bcs::to_bytes(&format!(
+                                                "Ledger written to {}",
+                                                path.display()
+                                            ))
+                                            .unwrap();
+                                            writer.write_all(&bytes).await.unwrap();
+                                        } else {
+                                            let bytes = bcs::to_bytes(&format!(
+                                                "The path provided must be a file: {}",
+                                                path.display()
+                                            ))
+                                            .unwrap();
+                                            writer.write_all(&bytes).await.unwrap();
+                                        }
+                                    }
+                                }
+                            }
+                            "summary" => {
+                                info!("Received summary command");
+                                let data_buffer = buffers.next().unwrap();
+                                let verbose = String::from_utf8(
+                                    data_buffer[..data_buffer.len() - 1].to_vec(),
+                                )
+                                .unwrap()
+                                .parse::<bool>()
+                                .unwrap();
+                                match indexer_state.as_ref() {
+                                    None => {
+                                        info!("Pre-init summary to client");
+                                        let _ = writer.write_all("Mina Indexer state still initializing, please wait".as_bytes())
+                                        .await
+                                        .map_err(|e| { info!("{e:?}"); });
+                                    }
+                                    Some(state) => {
+                                        if verbose {
+                                            let summary = state.summary_verbose();
+                                            let bytes = bcs::to_bytes(&summary).unwrap();
+                                            info!("Writing summary to client");
+                                            writer.write_all(&bytes).await.unwrap();
+                                        } else {
+                                            let summary = state.summary_short();
+                                            let bytes = bcs::to_bytes(&summary).unwrap();
+                                            info!("Writing summary to client");
+                                            writer.write_all(&bytes).await.unwrap();
+                                        }
+                                    }
+                                }
+                            }
+                            "save_state" => {
+                                info!("Received save_state command");
+                                let data_buffer = buffers.next().unwrap();
+                                let snapshot_path = PathBuf::from(
+                                    String::from_utf8(
+                                        data_buffer[..data_buffer.len() - 1].to_vec(),
+                                    )
+                                    .unwrap(),
+                                );
+                                match indexer_state.as_ref() {
+                                    None => writer
+                                        .write_all(
+                                            b"Mina Indexer state still initializing, please wait",
+                                        )
+                                        .await
+                                        .unwrap(),
+                                    Some(_state) => {
+                                        save_tx.send(SaveCommand(snapshot_path)).await.unwrap();
+                                        writer.write_all(b"saving snapshot...").await.unwrap();
+                                        match save_resp_rx.recv().unwrap() {
+                                            None => writer
+                                                .write_all(b"Unable to save snapshot!")
+                                                .await
+                                                .unwrap(),
+                                            Some(SaveResponse(resp)) => {
+                                                writer.write_all(resp.as_bytes()).await.unwrap()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _bad_request => {
+                                continue;
+                            }
+                        }
                     }
-                },
-            }}
+                }
+            }
         });
 
         Ok(Self {
@@ -398,7 +463,7 @@ pub async fn run(
         oneshot::Sender<MinaIndexerQueryResponse>,
     )>,
     mut save_rx: mpsc::Receiver<SaveCommand>,
-    mut save_resp_tx: spmc::Sender<Option<SaveResponse>>
+    mut save_resp_tx: spmc::Sender<Option<SaveResponse>>,
 ) -> Result<(), anyhow::Error> {
     use MinaIndexerRunPhase::*;
 
@@ -416,7 +481,7 @@ pub async fn run(
                         break state_reader;
                     }
                 };
-                state_reader.as_ref().map(|state| {
+                if let Some(state) = state_reader.as_ref() {
                     use MinaIndexerQuery::*;
                     let response = match command {
                         NumBlocksProcessed
@@ -433,7 +498,7 @@ pub async fn run(
                             => MinaIndexerQueryResponse::Uptime(state.init_time.elapsed())
                     };
                     response_sender.send(response).unwrap();
-                });
+                };
             }
 
             block_fut = filesystem_receiver.recv_block() => {
@@ -450,10 +515,10 @@ pub async fn run(
 
                         state.add_block(&precomputed_block)?;
                         info!("Added {block:?}");
-                        return Ok::<(), anyhow::Error>(())
+                        Ok::<(), anyhow::Error>(())
                     } else {
                         info!("Block receiver shutdown, system exit");
-                        return Ok(())
+                        Ok(())
                     }
                 });
             }
